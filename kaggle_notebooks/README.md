@@ -1,6 +1,6 @@
 # Kaggle Notebooks：MedGemma 图像到报告 + F1 RadGraph
 
-三个 Notebook 用于在 Kaggle 上跑 MedGemma 图像到报告生成与 RadGraph F1 评估，并对比原始、W4A4、W4A8 的分数与 GPU 占用。
+四个 Notebook 用于在 Kaggle 上跑 MedGemma 图像到报告生成与 RadGraph F1 评估，并对比原始、W4A4、W4A8、蒸馏（QLoRA）的分数与 GPU 占用。
 
 - **Kaggle**：Add Input 添加 `mimic-cxr-dataset`，CSV 可放入该数据集或单独建数据集上传
 - **环境**：torch 2.6, transformers 4.51, accelerate, bitsandbytes

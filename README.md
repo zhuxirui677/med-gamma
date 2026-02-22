@@ -9,6 +9,7 @@
 - [项目概述](#项目概述)
 - [模型方法总览](#模型方法总览)
 - [技术原理详解](#技术原理详解)
+- [QLoRA 深度解析](#qlora-深度解析)
 - [快速开始](#快速开始)
 - [Colab Notebooks 使用指南](#colab-notebooks-使用指南)
 - [输出文件说明](#输出文件说明)
@@ -25,8 +26,7 @@
 - **原始模型**：FP16 全精度推理
 - **W4A4 量化**：4-bit 权重 + 4-bit 激活（bitsandbytes）
 - **W4A8 量化**：4-bit 权重 + 8-bit 激活（bitsandbytes）
-- **AutoRound 4bit**：Intel AutoRound 预量化模型（GPTQ 格式）
-- **知识蒸馏**：Teacher-Student 蒸馏 + QLoRA 微调
+- **知识蒸馏 + QLoRA**：Teacher-Student 蒸馏，Student 使用 4-bit 量化 + LoRA 微调
 
 **评估指标**：RadGraph F1（RG_E、RG_ER、RG_ER_bar）  
 **数据集**：MIMIC-CXR 233 samples  
@@ -41,8 +41,7 @@
 | **原始 (FP16)** | 全精度 MedGemma 1.5 | ~8 GB | 最高 | 基准 | `MedGemma_1_5_Clean.ipynb` |
 | **W4A4** | 4-bit 权重 + 4-bit 激活 | ~3-4 GB | 略降 | 最快 | `MedGemma_W4A4_Colab.ipynb` |
 | **W4A8** | 4-bit 权重 + 8-bit 激活 | ~4-5 GB | 高 | 较快 | `MedGemma_W4A8_Colab.ipynb` |
-| **AutoRound 4bit** | Intel AutoRound 预量化 | ~3-5 GB | 高 | 快 | `MedGemma_AutoRound_4bit_Colab.ipynb` |
-| **知识蒸馏** | Teacher→Student + QLoRA | ~5-7 GB（训练） | 接近原始 | 快 | `MedGemma_Distillation_Colab.ipynb` |
+| **蒸馏 + QLoRA** | Teacher→Student，Student 用 QLoRA | ~5-7 GB（训练） | 接近原始 | 快 | `MedGemma_Distillation_Colab.ipynb` |
 
 ---
 
@@ -93,23 +92,11 @@ BitsAndBytesConfig(
 
 ---
 
-### 3. AutoRound 4bit
-
-**原理**：
-- **量化方法**：Intel AutoRound（Automated Rounding）算法
-- **格式**：GPTQ 格式，兼容 auto-gptq 和 optimum
-- **模型**：使用预量化模型 `Ashley101179/medgemma-1.5-4b-it-4bit-autoround`
-
-**优势**：无需本地量化，直接加载预量化权重  
-**劣势**：依赖 auto-gptq，需 CUDA 环境
-
----
-
-### 4. 知识蒸馏（Knowledge Distillation） + QLoRA
+### 3. 知识蒸馏（Knowledge Distillation） + QLoRA
 
 **原理**：
 - **Teacher**：原始 MedGemma 1.5，生成高质量报告
-- **Student**：4-bit 量化 + LoRA 微调的 MedGemma
+- **Student**：4-bit 量化 + LoRA 微调的 MedGemma（QLoRA）
 - **蒸馏目标**：Student 逐 token 拟合 Teacher 的输出序列（使用 Cross-Entropy 损失）
 - **训练框架**：peft + trl
 
@@ -121,6 +108,60 @@ BitsAndBytesConfig(
 
 **优势**：Student 模型更小、更快，同时保持较高生成质量  
 **劣势**：需要 2-4 小时训练时间
+
+---
+
+## QLoRA 深度解析
+
+### 什么是 QLoRA？
+
+**QLoRA**（Quantized Low-Rank Adaptation）是一种将**量化**与**低秩适配**结合的微调方法，由 Dettmers 等人于 2023 年提出。它允许在**消费级 GPU**上微调大语言模型，只需约 4-bit 显存即可完成训练。
+
+### 核心思想
+
+| 组件 | 说明 |
+|------|------|
+| **Q**（Quantized） | 将预训练权重冻结并量化为 4-bit（NF4），大幅降低显存 |
+| **LoRA**（Low-Rank Adaptation） | 只训练少量低秩矩阵（Adapter），不更新原始权重 |
+| **组合** | 推理时：4-bit 权重 + LoRA 增量 = 等效全精度输出 |
+
+### 数学形式
+
+```
+原始前向：y = W·x
+QLoRA：   y = (Q(W) + ΔW)·x = Q(W)·x + ΔW·x
+
+其中 ΔW = B·A（低秩分解，A∈R^(r×d), B∈R^(d×r)，r<<d）
+```
+
+- **Q(W)**：4-bit 量化后的冻结权重
+- **ΔW = B·A**：LoRA 可训练参数，秩 r 通常为 8、16、32
+
+### 为什么 QLoRA 重要？
+
+1. **显存友好**：4-bit 量化使 7B 模型仅需 ~4GB 显存，4B 模型约 ~2GB
+2. **训练高效**：只训练 0.1–1% 的参数，收敛快、过拟合风险低
+3. **精度保持**：通过 Double Quantization 和 NF4 量化，精度损失可控制在 1% 以内
+4. **即插即用**：训练后的 LoRA 权重可单独保存（~几十 MB），可随时加载/卸载
+
+### 本项目中 QLoRA 的应用
+
+在蒸馏流程中：
+
+1. **Student 模型**：MedGemma 1.5 以 4-bit 加载（bitsandbytes NF4）
+2. **LoRA 配置**：`LoraConfig(r=16, lora_alpha=32, target_modules=["q_proj","v_proj","k_proj","o_proj"])`
+3. **训练目标**：Student 的 logits 与 Teacher 的 one-hot 标签做 Cross-Entropy 损失
+4. **输出**：训练后的 LoRA adapter + 4-bit 基座，推理时合并
+
+### 关键依赖
+
+```bash
+pip install bitsandbytes peft trl
+```
+
+- **bitsandbytes**：4-bit 量化
+- **peft**：LoRA 实现
+- **trl**：SFTTrainer 等训练工具
 
 ---
 
@@ -141,7 +182,7 @@ BitsAndBytesConfig(
 
 ### 一键运行（Colab）
 
-1. 打开对应 Colab Notebook：`colab_notebooks/` 目录下
+1. 打开对应 Colab Notebook
 2. 选择 **Runtime → Change runtime type → A100 GPU**
 3. 左侧 **🔑 Secrets** 添加 token（名称：`zhuxirui11` 或 `HF_TOKEN`）
 4. **Run All**
@@ -157,8 +198,7 @@ BitsAndBytesConfig(
 | **原始版本** | `MedGemma_1_5_Clean.ipynb` | 基线模型，FP16 全精度 |
 | **W4A4** | `MedGemma_W4A4_Colab.ipynb` | 4-bit 权重 + 4-bit 激活 |
 | **W4A8** | `MedGemma_W4A8_Colab.ipynb` | 4-bit 权重 + 8-bit 激活 |
-| **AutoRound** | `MedGemma_AutoRound_4bit_Colab.ipynb` | 预量化 AutoRound 4bit |
-| **蒸馏** | `MedGemma_Distillation_Colab.ipynb` | Teacher-Student + QLoRA |
+| **蒸馏 + QLoRA** | `MedGemma_Distillation_Colab.ipynb` | Teacher-Student 蒸馏，Student 用 QLoRA |
 
 ### 运行流程（通用）
 
@@ -175,12 +215,12 @@ Step 7.5: 清理模型，释放显存（W4A4/W4A8）
 Step 8: RadGraph F1 评估
 ```
 
-### 蒸馏 Notebook 额外步骤
+### 蒸馏 + QLoRA Notebook 流程
 
 ```
 Step 6: Teacher 生成目标报告
 Step 7: 初始化 Student（4-bit + LoRA）
-Step 8: 蒸馏训练（2-4 小时）
+Step 8: 蒸馏训练（2-4 小时）← QLoRA 微调
 Step 9: Student 生成报告
 Step 10: RadGraph F1 评估
 ```
@@ -203,7 +243,6 @@ drive.mount('/content/drive')
 | 原始 | `/content/drive/MyDrive/medgamma/medgemma_reports_233.csv` |
 | W4A4 | `/content/drive/MyDrive/medgamma/medgemma_w4a4_reports_233.csv` |
 | W4A8 | `/content/drive/MyDrive/medgamma/medgemma_w4a8_reports_233.csv` |
-| AutoRound | `/content/drive/MyDrive/medgamma/medgemma_autoround_reports_233.csv` |
 | 蒸馏 | `/content/drive/MyDrive/medgamma/medgemma_distilled_reports_233.csv` |
 
 ### RadGraph F1 指标说明
@@ -230,15 +269,13 @@ medgamma/
 ├── MedGemma_1_5_Clean.ipynb     # 原始模型
 ├── MedGemma_W4A4_Colab.ipynb    # W4A4 量化
 ├── MedGemma_W4A8_Colab.ipynb    # W4A8 量化
-├── MedGemma_AutoRound_4bit_Colab.ipynb  # AutoRound 4bit
-├── MedGemma_Distillation_Colab.ipynb    # 知识蒸馏
+├── MedGemma_Distillation_Colab.ipynb    # 知识蒸馏 + QLoRA
 │
 ├── kaggle_notebooks/            # Kaggle 版本
 │   ├── README.md
 │   ├── 01_medgemma_original_w4a16_f1_radgraph_v2.ipynb
 │   ├── 02_medgemma_w4a4_f1_radgraph_v2.ipynb
 │   ├── 03_medgemma_w4a8_f1_radgraph_v2.ipynb
-│   ├── 04_medgemma_autoround_4bit_f1_radgraph_v2.ipynb
 │   ├── 04_medgemma_distillation_233.ipynb
 │   └── 04_compare_results_v2.ipynb
 │
@@ -267,18 +304,17 @@ pip install torch torchvision transformers accelerate bitsandbytes radgraph pill
 | 方法 | 额外依赖 |
 |------|----------|
 | W4A4 / W4A8 | `bitsandbytes` |
-| AutoRound | `auto-gptq optimum accelerate` |
-| 蒸馏 | `bitsandbytes peft trl` |
+| 蒸馏 + QLoRA | `bitsandbytes peft trl` |
 
 ---
 
 ## 参考文献
 
 - **MedGemma**: [google/medgemma-1.5-4b-it](https://huggingface.co/google/medgemma-1.5-4b-it)
+- **QLoRA**: [QLoRA: Efficient Finetuning of Quantized LLMs](https://arxiv.org/abs/2305.14314)
 - **RadGraph**: [RadGraph-XL (ACL 2024)](https://aclanthology.org/2024.findings-acl.765)
 - **F1-RadGraph**: [EMNLP 2022](https://aclanthology.org/2022.findings-emnlp.319)
 - **RadGraph F1 Calculator**: [sx2660-png/Redgraph-F1score-calculator](https://github.com/sx2660-png/Redgraph-F1score-calculator)
-- **AutoRound 4bit 模型**: [Ashley101179/medgemma-1.5-4b-it-4bit-autoround](https://huggingface.co/Ashley101179/medgemma-1.5-4b-it-4bit-autoround)
 
 ---
 

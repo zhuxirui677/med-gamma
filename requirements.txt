@@ -15,10 +15,6 @@ radgraph
 # 量化（W4A4 / W4A8）
 bitsandbytes>=0.46.1
 
-# AutoRound 4bit
-auto-gptq
-optimum
-
-# 蒸馏
+# 蒸馏 + QLoRA
 peft
 trl
