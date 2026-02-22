@@ -1,103 +1,287 @@
-# MedGamma AWQ + RadGraph F1 复现工程
+# MedGemma 1.5 胸部 X 光报告生成与 RadGraph F1 评估
 
-这个仓库用于：
-- 用清洗后的 MIMIC-CXR 文本做 AWQ 量化校准（AutoAWQ 仅支持部分模型）
-- 用 MedGemma1.5-4B-it 生成报告
-- 用 RadGraph F1 做质量评估
+基于 **Google MedGemma 1.5 (4B)** 的胸部 X 光放射学报告生成项目，支持多种量化与蒸馏方法，并在 MIMIC-CXR 233 样本上评估 RadGraph F1 分数。
 
-你负责 AWQ 量化部分，我已把需要的脚本和数据路径整理好。
+---
+
+## 📋 目录
+
+- [项目概述](#项目概述)
+- [模型方法总览](#模型方法总览)
+- [技术原理详解](#技术原理详解)
+- [快速开始](#快速开始)
+- [Colab Notebooks 使用指南](#colab-notebooks-使用指南)
+- [输出文件说明](#输出文件说明)
+- [目录结构](#目录结构)
+- [环境要求](#环境要求)
+- [参考文献](#参考文献)
+
+---
+
+## 项目概述
+
+本项目实现 **Google MedGemma 1.5 (4B)** 的胸部 X 光图像到放射学报告生成，支持：
+
+- **原始模型**：FP16 全精度推理
+- **W4A4 量化**：4-bit 权重 + 4-bit 激活（bitsandbytes）
+- **W4A8 量化**：4-bit 权重 + 8-bit 激活（bitsandbytes）
+- **AutoRound 4bit**：Intel AutoRound 预量化模型（GPTQ 格式）
+- **知识蒸馏**：Teacher-Student 蒸馏 + QLoRA 微调
+
+**评估指标**：RadGraph F1（RG_E、RG_ER、RG_ER_bar）  
+**数据集**：MIMIC-CXR 233 samples  
+**评估框架**：RadGraph-XL
+
+---
+
+## 模型方法总览
+
+| 方法 | 说明 | 显存 | 精度 | 推理速度 | Notebook |
+|------|------|------|------|----------|----------|
+| **原始 (FP16)** | 全精度 MedGemma 1.5 | ~8 GB | 最高 | 基准 | `MedGemma_1_5_Clean.ipynb` |
+| **W4A4** | 4-bit 权重 + 4-bit 激活 | ~3-4 GB | 略降 | 最快 | `MedGemma_W4A4_Colab.ipynb` |
+| **W4A8** | 4-bit 权重 + 8-bit 激活 | ~4-5 GB | 高 | 较快 | `MedGemma_W4A8_Colab.ipynb` |
+| **AutoRound 4bit** | Intel AutoRound 预量化 | ~3-5 GB | 高 | 快 | `MedGemma_AutoRound_4bit_Colab.ipynb` |
+| **知识蒸馏** | Teacher→Student + QLoRA | ~5-7 GB（训练） | 接近原始 | 快 | `MedGemma_Distillation_Colab.ipynb` |
+
+---
+
+## 技术原理详解
+
+### 1. W4A4（4-bit 权重 + 4-bit 激活）
+
+**原理**：
+- **权重量化**：使用 bitsandbytes NF4（Normalized Float 4-bit），针对权重分布优化
+- **激活量化**：4-bit 对称量化，范围 [-8, 7]，per-tensor scale
+- **compute_dtype**：`torch.bfloat16`
+
+**配置**：
+```python
+BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4"
+)
+```
+
+**优势**：显存最低，推理最快  
+**劣势**：精度略低于 W4A8
+
+---
+
+### 2. W4A8（4-bit 权重 + 8-bit 激活）
+
+**原理**：
+- **权重量化**：同 W4A4，bitsandbytes NF4
+- **激活量化**：8-bit 对称量化，范围 [-128, 127]（有符号 8-bit）
+- **compute_dtype**：`torch.float16`
+
+**配置**：
+```python
+BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,  # 8-bit 激活
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",
+    llm_int8_enable_fp32_cpu_offload=False
+)
+```
+
+**优势**：精度与显存平衡较好  
+**劣势**：比 W4A4 稍慢、显存稍高
+
+---
+
+### 3. AutoRound 4bit
+
+**原理**：
+- **量化方法**：Intel AutoRound（Automated Rounding）算法
+- **格式**：GPTQ 格式，兼容 auto-gptq 和 optimum
+- **模型**：使用预量化模型 `Ashley101179/medgemma-1.5-4b-it-4bit-autoround`
+
+**优势**：无需本地量化，直接加载预量化权重  
+**劣势**：依赖 auto-gptq，需 CUDA 环境
+
+---
+
+### 4. 知识蒸馏（Knowledge Distillation） + QLoRA
+
+**原理**：
+- **Teacher**：原始 MedGemma 1.5，生成高质量报告
+- **Student**：4-bit 量化 + LoRA 微调的 MedGemma
+- **蒸馏目标**：Student 逐 token 拟合 Teacher 的输出序列（使用 Cross-Entropy 损失）
+- **训练框架**：peft + trl
+
+**流程**：
+1. Teacher 生成 233 条报告（或使用 CSV 中已有的）
+2. 初始化 Student（4-bit + LoRA）
+3. 蒸馏训练：Student 学习 Teacher 的输出
+4. 用训练后的 Student 生成报告并评估
+
+**优势**：Student 模型更小、更快，同时保持较高生成质量  
+**劣势**：需要 2-4 小时训练时间
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- **Python**：3.10-3.12（Colab 默认 3.12 可用）
+- **GPU**：A100 或 H100（推荐 40GB+）
+- **HuggingFace**：需申请 [MedGemma 访问权限](https://huggingface.co/google/medgemma-1.5-4b-it) 并获取 token
+
+### 前置准备
+
+1. **申请 MedGemma 访问**：https://huggingface.co/google/medgemma-1.5-4b-it  
+2. **获取 HF Token**：https://huggingface.co/settings/tokens  
+3. **准备 CSV**：`mimic_eval_single_image_final_233.csv`（含 `Image_Path`、`Ground_Truth` 列）  
+4. **上传到 Google Drive**：将 CSV 放入 `My Drive/medgamma/` 目录
+
+### 一键运行（Colab）
+
+1. 打开对应 Colab Notebook：`colab_notebooks/` 目录下
+2. 选择 **Runtime → Change runtime type → A100 GPU**
+3. 左侧 **🔑 Secrets** 添加 token（名称：`zhuxirui11` 或 `HF_TOKEN`）
+4. **Run All**
+
+---
+
+## Colab Notebooks 使用指南
+
+### 文件位置与说明
+
+| Notebook | 路径 | 用途 |
+|----------|------|------|
+| **原始版本** | `MedGemma_1_5_Clean.ipynb` | 基线模型，FP16 全精度 |
+| **W4A4** | `MedGemma_W4A4_Colab.ipynb` | 4-bit 权重 + 4-bit 激活 |
+| **W4A8** | `MedGemma_W4A8_Colab.ipynb` | 4-bit 权重 + 8-bit 激活 |
+| **AutoRound** | `MedGemma_AutoRound_4bit_Colab.ipynb` | 预量化 AutoRound 4bit |
+| **蒸馏** | `MedGemma_Distillation_Colab.ipynb` | Teacher-Student + QLoRA |
+
+### 运行流程（通用）
+
+```
+Step 0: 检查 Python 版本
+Step 1: 安装依赖
+Step 2: 登录 HuggingFace ⚠️ 必需！
+Step 3: 挂载 Google Drive
+Step 4: 下载 MIMIC-CXR 数据集（kagglehub）
+Step 5: 对齐 233 CSV 的图片路径
+Step 6: 加载模型
+Step 7: 批量生成报告（233 samples）
+Step 7.5: 清理模型，释放显存（W4A4/W4A8）
+Step 8: RadGraph F1 评估
+```
+
+### 蒸馏 Notebook 额外步骤
+
+```
+Step 6: Teacher 生成目标报告
+Step 7: 初始化 Student（4-bit + LoRA）
+Step 8: 蒸馏训练（2-4 小时）
+Step 9: Student 生成报告
+Step 10: RadGraph F1 评估
+```
+
+### 挂载 Google Drive 代码
+
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+---
+
+## 输出文件说明
+
+### 报告 CSV 保存路径
+
+| 方法 | 路径 |
+|------|------|
+| 原始 | `/content/drive/MyDrive/medgamma/medgemma_reports_233.csv` |
+| W4A4 | `/content/drive/MyDrive/medgamma/medgemma_w4a4_reports_233.csv` |
+| W4A8 | `/content/drive/MyDrive/medgamma/medgemma_w4a8_reports_233.csv` |
+| AutoRound | `/content/drive/MyDrive/medgamma/medgemma_autoround_reports_233.csv` |
+| 蒸馏 | `/content/drive/MyDrive/medgamma/medgemma_distilled_reports_233.csv` |
+
+### RadGraph F1 指标说明
+
+| 指标 | 含义 |
+|------|------|
+| **RG_E** | Entity F1（实体匹配） |
+| **RG_ER** | Entity + Relation F1（实体+关系，论文常用） |
+| **RG_ER_bar** | Complete Match F1（完全匹配） |
+
+所有分数以**百分制**显示（如 33.39 表示 33.39%）。
+
+---
 
 ## 目录结构
 
 ```
-.
-├── scripts/                     # 主脚本（推荐从这里运行）
-│   ├── quantize_medgamma_awq.py  # AWQ 量化
-│   ├── evaluate_awq_model.py     # 原始 vs 量化评估
-│   └── test_medgamma_clean.py    # MedGamma + RadGraph 一键评估
-├── prompts/
-│   └── example_prompt.txt        # 你的示例 prompt
-├── config_example.json           # 示例配置
-├── mimic_train_cleaned.csv       # 清洗数据（训练）
-├── mimic_eval_cleaned.csv        # 清洗数据（评估）
-├── README.md
-└── quick_start.sh                # 兼容入口（会调用 scripts/）
+medgamma/
+├── README.md                    # 本文件
+├── requirements.txt             # 依赖
+├── .gitignore
+├── mimic_eval_single_image_final_233.csv   # 233 评估样本
+│
+├── MedGemma_1_5_Clean.ipynb     # 原始模型
+├── MedGemma_W4A4_Colab.ipynb    # W4A4 量化
+├── MedGemma_W4A8_Colab.ipynb    # W4A8 量化
+├── MedGemma_AutoRound_4bit_Colab.ipynb  # AutoRound 4bit
+├── MedGemma_Distillation_Colab.ipynb    # 知识蒸馏
+│
+├── kaggle_notebooks/            # Kaggle 版本
+│   ├── README.md
+│   ├── 01_medgemma_original_w4a16_f1_radgraph_v2.ipynb
+│   ├── 02_medgemma_w4a4_f1_radgraph_v2.ipynb
+│   ├── 03_medgemma_w4a8_f1_radgraph_v2.ipynb
+│   ├── 04_medgemma_autoround_4bit_f1_radgraph_v2.ipynb
+│   ├── 04_medgemma_distillation_233.ipynb
+│   └── 04_compare_results_v2.ipynb
+│
+├── scripts/                     # 脚本
+│   ├── distill_medgemma_233.py  # 蒸馏脚本
+│   ├── evaluate_f1_radgraph_csv.py
+│   └── prepare_eval_from_ready.py
+│
+└── docs/                        # 文档
+    ├── MIMIC_CXR_IMAGE_DOWNLOAD_GUIDE.md
+    └── W4A8_W4A4_LOGIC.md（在 kaggle_notebooks/）
 ```
 
-根目录的 `quantize_medgamma_awq.py` / `evaluate_awq_model.py` / `test_medgamma_clean.py`
-是兼容入口，实际逻辑在 `scripts/` 中。
+---
 
-## 你的工作流（推荐）
+## 环境要求
 
-### 1) 安装依赖
-```
-pip install torch transformers accelerate autoawq radgraph
-```
+### 依赖安装
 
-### 2) 用 clean 数据做 AWQ 量化（你负责）
-注意：AutoAWQ 目前不支持 `google/medgemma-1.5-4b-it`，请换成支持的模型（例如 Mistral/Llama/Qwen）。
-```
-python scripts/quantize_medgamma_awq.py \
-  --model_path "mistralai/Mistral-7B-Instruct-v0.2" \
-  --output_path "./medgamma-awq-4bit" \
-  --calibration_data "./mimic_train_cleaned.csv" \
-  --num_samples 500 \
-  --text_column "text" \
-  --prompt_file "./prompts/example_prompt.txt" \
-  --mode quantize
+```bash
+pip install torch torchvision transformers accelerate bitsandbytes radgraph pillow pandas
 ```
 
-如果你更喜欢配置文件：
-```
-python scripts/quantize_medgamma_awq.py --config ./config_example.json --mode quantize
-```
+### 量化方法额外依赖
 
-### 3) 评估 AWQ 量化效果（F1 + 速度 + 显存）
-```
-python scripts/evaluate_awq_model.py \
-  --original_model "mistralai/Mistral-7B-Instruct-v0.2" \
-  --quantized_model "./medgamma-awq-4bit" \
-  --eval_data "./mimic_eval_cleaned.csv" \
-  --prompt_file "./prompts/example_prompt.txt" \
-  --num_samples 100
-```
+| 方法 | 额外依赖 |
+|------|----------|
+| W4A4 / W4A8 | `bitsandbytes` |
+| AutoRound | `auto-gptq optimum accelerate` |
+| 蒸馏 | `bitsandbytes peft trl` |
 
-### 4) 仅做 MedGamma + RadGraph F1（不含 AWQ）
-```
-python scripts/test_medgamma_clean.py \
-  --data "./mimic_eval_cleaned.csv" \
-  --num_samples 10 \
-  --prompt_file "./prompts/example_prompt.txt"
-```
+---
 
-## prompt 使用说明
+## 参考文献
 
-`prompts/example_prompt.txt` 已写入你的示例 prompt。  
-如果你想临时改 prompt，可以直接传 `--prompt_text`：
-```
-python scripts/test_medgamma_clean.py --prompt_text "Your prompt..."
-```
+- **MedGemma**: [google/medgemma-1.5-4b-it](https://huggingface.co/google/medgemma-1.5-4b-it)
+- **RadGraph**: [RadGraph-XL (ACL 2024)](https://aclanthology.org/2024.findings-acl.765)
+- **F1-RadGraph**: [EMNLP 2022](https://aclanthology.org/2022.findings-emnlp.319)
+- **RadGraph F1 Calculator**: [sx2660-png/Redgraph-F1score-calculator](https://github.com/sx2660-png/Redgraph-F1score-calculator)
+- **AutoRound 4bit 模型**: [Ashley101179/medgemma-1.5-4b-it-4bit-autoround](https://huggingface.co/Ashley101179/medgemma-1.5-4b-it-4bit-autoround)
 
-如果 prompt 里需要用到数据列，可以写成模板，例如：
-```
-Findings: {text}
-```
-脚本会自动把 `{text}` 替换为对应数据列（默认列名 `text`）。
+---
 
-## 量化脚本改动说明（已检查并修正）
+## License
 
-- 支持 `--config` 配置文件
-- 支持 `--prompt_file` / `--prompt_template`
-- 校准数据支持自定义 `--text_column`
-- 量化配置可通过 CLI 覆盖（w_bit/group_size/zero_point/version）
-
-## 备注
-
-- `mimic_train_cleaned.csv` 和 `mimic_eval_cleaned.csv` 默认放在根目录
-- 如需迁移到 `data/clean/`，只要同步修改 `--calibration_data` / `--eval_data` 路径即可
-
-## 常见问题
-
-- 模型下载慢：可设置 `HF_ENDPOINT` 或使用镜像
-- 显存不足：减少 `--num_samples` 或分批评估
-- F1 下降过大：增加校准样本或调小 `group_size`
+本项目遵循 MedGemma 模型许可协议。详见 [Hugging Face](https://huggingface.co/google/medgemma-1.5-4b-it)。

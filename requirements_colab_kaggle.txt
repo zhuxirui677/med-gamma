@@ -1,0 +1,12 @@
+# 你试出的可跑通环境 (Colab/Kaggle)
+# 用于加速与 MedGemma 推理
+torch>=2.6.0
+torchvision>=0.21.0
+torchaudio>=2.6.0
+transformers>=4.51.0
+accelerate
+bitsandbytes
+pillow
+pandas
+radgraph
+peft

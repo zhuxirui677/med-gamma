@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+aww/
+medgamma网页/
+evaluation_results/
+# 保留 mimic_eval_single_image_final_233.csv，忽略生成的结果 CSV
+*_reports_*.csv
+*_results.csv
+distillation_checkpoints*/
+distilled_best_model*/
+medgamma-awq*/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Colab/Kaggle outputs
+/kaggle/working/
+/content/
+
+# Secrets
+*.env
+.env.local
