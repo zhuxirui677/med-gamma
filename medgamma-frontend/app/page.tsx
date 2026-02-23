@@ -106,16 +106,22 @@ export default function Home() {
 
       try {
         const currentReport = reports[selectedIndex]
-        const contextMessage = uploadedImageB64
+        // 有上传图用上传图，否则用当前样本的图片 URL（API 会拉取转 base64）
+        const imageToSend = uploadedImageB64 || undefined
+        const imageUrlToSend = !uploadedImageB64 && currentReport?.image_path?.startsWith("http")
+          ? currentReport.image_path
+          : undefined
+        const promptMessage = imageToSend || imageUrlToSend
           ? message
-          : `[Context: CXR image for subject ${currentReport?.subject_id}, view: ${currentReport?.view}. Ground truth: ${currentReport?.ground_truth?.substring(0, 200)}...]\n\nQuestion: ${message}`
+          : `[Context: CXR for subject ${currentReport?.subject_id}. Ground truth: ${currentReport?.ground_truth?.substring(0, 200)}...]\n\nQuestion: ${message}`
 
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: contextMessage,
-            image_b64: uploadedImageB64 || undefined,
+            message: promptMessage,
+            image_b64: imageToSend,
+            image_url: imageUrlToSend,
             max_tokens: 512,
             temperature: 0.3,
           }),
