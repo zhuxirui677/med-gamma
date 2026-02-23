@@ -12,7 +12,7 @@ eggs/
 .eggs/
 lib/
 # 前端 reports 数据需纳入版本控制
-!medgamma前端/lib/reports-data.csv
+!medgamma-frontend/lib/reports-data.csv
 lib64/
 parts/
 sdist/
