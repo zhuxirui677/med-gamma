@@ -106,7 +106,7 @@ export function ImageViewer({
             className="transition-transform duration-200"
             style={{ transform: `scale(${zoom / 100})` }}
           >
-            /* eslint-disable-next-line @next/next/no-img-element */
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={displayUrl}
               alt={`Chest X-Ray for subject ${subjectId}`}

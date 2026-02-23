@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { toast } from "sonner"
 import { Header } from "@/components/header"
 import { OnboardingTour } from "@/components/onboarding-tour"
@@ -24,6 +24,7 @@ export default function Home() {
   const [showTour, setShowTour] = useState(false)
   const [uploadedImage, setUploadedImage] = useState<string | null>(null)
   const [uploadedImageB64, setUploadedImageB64] = useState<string | null>(null)
+  const blobUrlRef = useRef<string | null>(null)
 
   // Load reports data
   useEffect(() => {
@@ -58,6 +59,10 @@ export default function Home() {
   }, [])
 
   const handleSelectSample = useCallback((index: number) => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = null
+    }
     setSelectedIndex(index)
     setUploadedImage(null)
     setUploadedImageB64(null)
@@ -68,19 +73,18 @@ export default function Home() {
     try {
       const toUpload = await compressImageIfNeeded(file)
 
-      // 先设置预览（同步显示）
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string
-        setUploadedImage(dataUrl)
-        if (dataUrl.startsWith("data:")) {
-          const b64 = dataUrl.split(",")[1]
-          if (b64) setUploadedImageB64(b64)
-        }
+      // 释放之前的 blob URL
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
       }
-      reader.readAsDataURL(toUpload)
 
-      // 同时上传到 API 获取 base64（用于大图或格式统一）
+      // 1. 立即用 blob URL 显示预览（不依赖 FileReader 异步）
+      const blobUrl = URL.createObjectURL(toUpload)
+      blobUrlRef.current = blobUrl
+      setUploadedImage(blobUrl)
+
+      // 2. 上传到 API 获取 base64，用于发送给 HF
       const formData = new FormData()
       formData.append("image", toUpload)
       const res = await fetch("/api/upload", { method: "POST", body: formData })
@@ -91,6 +95,9 @@ export default function Home() {
         setChatMessages([])
       } else {
         toast.error(data.error || "Failed to upload image")
+        URL.revokeObjectURL(blobUrl)
+        blobUrlRef.current = null
+        setUploadedImage(null)
       }
     } catch (error) {
       console.error("Upload failed:", error)

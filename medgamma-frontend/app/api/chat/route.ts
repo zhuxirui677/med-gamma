@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
     if (HF_GRADIO_SPACE) {
       const gradioUrl = `https://${HF_GRADIO_SPACE.replace("/", "-")}.hf.space`
       const apiName = image_b64 ? "analyze" : "chat"
+      // HF Space 使用 /gradio_api/call/ 前缀（/call/ 返回 404）
       const callUrl = `${gradioUrl}/gradio_api/call/${apiName}`
 
       // 构建 data 数组（Gradio ImageData 对 data URL 只检查 url 字段，path 会触发 File name too long）
