@@ -71,26 +71,27 @@ export default function Home() {
 
   const handleUploadImage = useCallback(async (file: File) => {
     try {
-      const toUpload = await compressImageIfNeeded(file)
-
-      // 释放之前的 blob URL
+      // 1. 立即用原始文件的 blob URL 显示（不等待压缩），解决 iframe 内显示延迟
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
         blobUrlRef.current = null
       }
-
-      // 1. 立即用 blob URL 显示预览（不依赖 FileReader 异步）
-      const blobUrl = URL.createObjectURL(toUpload)
+      const blobUrl = URL.createObjectURL(file)
       blobUrlRef.current = blobUrl
       setUploadedImage(blobUrl)
 
-      // 2. 上传到 API 获取 base64，用于发送给 HF
+      // 2. 压缩后上传
+      const toUpload = await compressImageIfNeeded(file)
       const formData = new FormData()
       formData.append("image", toUpload)
       const res = await fetch("/api/upload", { method: "POST", body: formData })
       const data = await res.json()
       if (data.success) {
         setUploadedImageB64(data.image_b64)
+        // 用 data URL 替换 blob 显示，iframe 内更稳定
+        setUploadedImage(`data:image/jpeg;base64,${data.image_b64}`)
+        URL.revokeObjectURL(blobUrl)
+        blobUrlRef.current = null
         toast.success(`Image uploaded: ${file.name}`)
         setChatMessages([])
       } else {
@@ -102,6 +103,11 @@ export default function Home() {
     } catch (error) {
       console.error("Upload failed:", error)
       toast.error("Failed to upload image")
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+      setUploadedImage(null)
     }
   }, [])
 
@@ -211,6 +217,7 @@ export default function Home() {
         <div className="flex flex-1 flex-col min-w-0">
           <div className="flex-1 min-h-0">
             <ImageViewer
+              key={uploadedImage || uploadedImageB64 || "sample"}
               imageUrl={
                 currentReport?.image_path?.startsWith("http")
                   ? currentReport.image_path
