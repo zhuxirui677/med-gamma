@@ -11,8 +11,8 @@ downloads/
 eggs/
 .eggs/
 lib/
-# 前端 reports 数据需纳入版本控制
-!medgamma-frontend/lib/reports-data.csv
+# 前端 lib 需纳入版本控制（utils.ts、reports-data.csv 等）
+!medgamma-frontend/lib/
 lib64/
 parts/
 sdist/
