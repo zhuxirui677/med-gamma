@@ -4,7 +4,6 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, ZoomIn, ZoomOut, RotateCcw, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-
 interface ImageViewerProps {
   imageUrl: string | null
   uploadedImage: string | null
@@ -24,7 +23,7 @@ export function ImageViewer({
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const displayUrl = uploadedImage || imageUrl || "/images/cxr-placeholder.jpg"
+  const displayUrl = uploadedImage || imageUrl || null
   const [imgError, setImgError] = useState(false)
   useEffect(() => {
     setImgError(false)
@@ -107,24 +106,23 @@ export function ImageViewer({
             className="transition-transform duration-200"
             style={{ transform: `scale(${zoom / 100})` }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={displayUrl}
               alt={`Chest X-Ray for subject ${subjectId}`}
               className="max-h-[calc(100vh-320px)] max-w-full object-contain"
-              crossOrigin="anonymous"
               onError={() => setImgError(true)}
             />
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border">
-              <Upload className="h-6 w-6" />
+          <div className="flex flex-col items-center gap-4 rounded-xl border-2 border-dashed border-border bg-muted/30 px-8 py-10">
+            <div className="flex h-20 w-20 items-center justify-center rounded-2xl border-2 border-dashed border-border bg-background">
+              <Upload className="h-10 w-10 text-muted-foreground" />
             </div>
-            <div className="text-center px-4">
-              <p className="text-sm font-medium">上传 CXR 图片进行 AI 分析</p>
-              <p className="text-xs mt-1">拖拽到此处，或点击上方上传按钮</p>
-              <p className="text-[11px] mt-2 text-muted-foreground/80">233 样本报告可浏览，图片需自行上传</p>
+            <div className="text-center space-y-1">
+              <p className="text-base font-semibold text-foreground">上传 CXR 图片进行 AI 分析</p>
+              <p className="text-sm text-muted-foreground">拖拽到此处，或点击上方上传按钮</p>
+              <p className="text-xs text-muted-foreground">选择左侧样本可查看报告，点击样本切换病例</p>
             </div>
           </div>
         )}

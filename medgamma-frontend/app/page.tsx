@@ -11,6 +11,7 @@ import { SampleBrowser } from "@/components/sample-browser"
 import { SampleSelector } from "@/components/sample-selector"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ReportEntry, ChatMessage } from "@/lib/types"
+import { compressImageIfNeeded } from "@/lib/utils"
 
 const TOUR_KEY = "medgemma-tour-completed"
 
@@ -65,22 +66,27 @@ export default function Home() {
 
   const handleUploadImage = useCallback(async (file: File) => {
     try {
+      // 超过 4MB 时压缩，避免 Vercel 4.5MB 限制
+      const toUpload = await compressImageIfNeeded(file)
+
       // Create local preview
       const reader = new FileReader()
       reader.onload = (e) => {
         setUploadedImage(e.target?.result as string)
       }
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(toUpload)
 
       // Upload and get base64
       const formData = new FormData()
-      formData.append("image", file)
+      formData.append("image", toUpload)
       const res = await fetch("/api/upload", { method: "POST", body: formData })
       const data = await res.json()
       if (data.success) {
         setUploadedImageB64(data.image_b64)
         toast.success(`Image uploaded: ${file.name}`)
         setChatMessages([])
+      } else {
+        toast.error(data.error || "Failed to upload image")
       }
     } catch (error) {
       console.error("Upload failed:", error)

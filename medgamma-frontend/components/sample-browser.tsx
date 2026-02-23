@@ -38,14 +38,23 @@ export function SampleBrowser({ reports, selectedIndex, onSelectSample }: Sample
               key={report.subject_id}
               ref={(el) => { itemRefs.current[i] = el }}
               onClick={() => onSelectSample(i)}
-              className={`flex-shrink-0 flex flex-col items-center gap-1 rounded-lg border p-2 transition-all ${
+              className={`flex-shrink-0 flex flex-col items-center gap-1 rounded-lg border p-2 transition-all overflow-hidden ${
                 i === selectedIndex
                   ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                   : "border-border bg-secondary/30 hover:border-primary/30 hover:bg-secondary"
               }`}
             >
-              <div className="flex h-12 w-16 items-center justify-center rounded bg-muted text-[10px] text-muted-foreground font-mono">
-                CXR
+              <div className="flex h-12 w-16 items-center justify-center rounded bg-muted overflow-hidden">
+                {report.image_path?.startsWith("http") ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={report.image_path}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-[10px] text-muted-foreground font-mono">CXR</span>
+                )}
               </div>
               <span className={`text-[10px] font-medium leading-none ${
                 i === selectedIndex ? "text-primary" : "text-muted-foreground"
