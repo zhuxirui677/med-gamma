@@ -39,12 +39,14 @@ git push origin main
 
 ---
 
-## 三、Vercel 环境变量（medgamma front end 项目）
+## 三、Vercel 环境变量与套餐要求
 
 | 变量 | 值 | 说明 |
 |------|-----|------|
 | HF_GRADIO_SPACE | Maxsine2025/medical-image-analysis | 必需 |
 | HF_TOKEN | hf_xxx | 可选，Space 需认证时 |
+
+**⚠️ AI 分析超时**：MedGemma 推理约需 2–3 分钟。Vercel Hobby 套餐函数仅 10 秒，会导致超时返回 Demo。需 **Pro 或 Team** 套餐（60s–300s）才能获得真实 AI 分析。
 
 ---
 

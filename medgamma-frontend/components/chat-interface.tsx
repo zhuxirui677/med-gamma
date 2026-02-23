@@ -106,9 +106,19 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
               <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
                 <Sparkles className="h-3 w-3 text-primary" />
               </div>
-              <div className="flex items-center gap-1.5 rounded-xl bg-secondary px-3 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Analyzing...
+              <div className="flex flex-col gap-0.5 rounded-xl bg-secondary px-3 py-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Analyzing... (约 2–3 分钟)
+                </span>
+                <a
+                  href="https://maxsine2025-medical-image-analysis.hf.space/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  若超时，可在此直接使用 HF Space 分析
+                </a>
               </div>
             </div>
           )}

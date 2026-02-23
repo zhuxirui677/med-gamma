@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// 延长超时：MedGemma 推理约 30–60 秒
-export const maxDuration = 60
+// MedGemma 推理约 2–3 分钟，需 Pro/Team 套餐支持长超时（Hobby 仅 10s）
+export const maxDuration = 300
 
 // 支持两种后端：Modal 或 HF Gradio Space
 const MODAL_API_URL = process.env.MODAL_API_URL || ""
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       if (HF_TOKEN) headers["Authorization"] = `Bearer ${HF_TOKEN}`
 
       const ctrl = new AbortController()
-      const timeout = setTimeout(() => ctrl.abort(), 55000)
+      const timeout = setTimeout(() => ctrl.abort(), 180000) // 3 分钟，匹配 HF 推理时间
       const postRes = await fetch(callUrl, {
         method: "POST",
         headers,
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       const getUrl = `${callUrl}/${event_id}`
       let responseText = ""
       const ctrl2 = new AbortController()
-      const timeout2 = setTimeout(() => ctrl2.abort(), 55000)
+      const timeout2 = setTimeout(() => ctrl2.abort(), 180000) // 3 分钟
       const getHeaders: Record<string, string> = { Accept: "text/event-stream" }
       if (HF_TOKEN) getHeaders["Authorization"] = `Bearer ${HF_TOKEN}`
       const getRes = await fetch(getUrl, {
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
     const isAbort = error instanceof Error && error.name === "AbortError"
     if (isAbort) {
       return NextResponse.json({
-        response: "请求超时。HF Space 推理较慢（模型加载约 2–5 分钟），请稍后重试。",
+        response: "请求超时（推理约需 2–3 分钟）。请直接使用下方 HF Space 的「🔬 Image Analysis」标签页进行分析，或升级 Vercel 至 Pro/Team 套餐以支持长超时。",
       })
     }
     if (msg.includes("overloaded") || msg.includes("restarting") || msg.includes("Could not parse Gradio")) {
