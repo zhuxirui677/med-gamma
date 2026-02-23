@@ -159,17 +159,17 @@ export async function POST(req: NextRequest) {
     const isAbort = error instanceof Error && error.name === "AbortError"
     if (isAbort) {
       return NextResponse.json({
-        response: "请求超时。HF Space 推理较慢，请稍后重试。",
+        response: "请求超时。HF Space 推理较慢（模型加载约 2–5 分钟），请稍后重试。",
       })
     }
     if (msg.includes("overloaded") || msg.includes("restarting") || msg.includes("Could not parse Gradio")) {
       const mock = generateMockResponse(message)
       return NextResponse.json({
-        response: `${mock}\n\n_(HF Space 当前繁忙或响应异常，以上为演示回复。请稍后重试获取真实 AI 分析。)_`,
+        response: `${mock}\n\n_(HF Space 当前繁忙或响应异常。请确认：1) 打开 https://maxsine2025-medical-image-analysis.hf.space/ 确认 Space 已 Running；2) Vercel 环境变量 HF_GRADIO_SPACE=Maxsine2025/medical-image-analysis 已设置。)_`,
       })
     }
     return NextResponse.json({
-      response: `Backend error: ${msg}. Check HF Space is Running and HF_GRADIO_SPACE is set in Vercel.`,
+      response: `Backend error: ${msg}\n\n请检查 HF Space 是否 Running：https://maxsine2025-medical-image-analysis.hf.space/`,
     })
   }
 }

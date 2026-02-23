@@ -66,17 +66,21 @@ export default function Home() {
 
   const handleUploadImage = useCallback(async (file: File) => {
     try {
-      // 超过 4MB 时压缩，避免 Vercel 4.5MB 限制
       const toUpload = await compressImageIfNeeded(file)
 
-      // Create local preview
+      // 先设置预览（同步显示）
       const reader = new FileReader()
       reader.onload = (e) => {
-        setUploadedImage(e.target?.result as string)
+        const dataUrl = e.target?.result as string
+        setUploadedImage(dataUrl)
+        if (dataUrl.startsWith("data:")) {
+          const b64 = dataUrl.split(",")[1]
+          if (b64) setUploadedImageB64(b64)
+        }
       }
       reader.readAsDataURL(toUpload)
 
-      // Upload and get base64
+      // 同时上传到 API 获取 base64（用于大图或格式统一）
       const formData = new FormData()
       formData.append("image", toUpload)
       const res = await fetch("/api/upload", { method: "POST", body: formData })
@@ -205,7 +209,12 @@ export default function Home() {
                   ? currentReport.image_path
                   : null
               }
-              uploadedImage={uploadedImage}
+              uploadedImage={
+                uploadedImage ||
+                (uploadedImageB64
+                  ? `data:image/jpeg;base64,${uploadedImageB64}`
+                  : null)
+              }
               subjectId={currentReport?.subject_id || "N/A"}
               view={currentReport?.view || "N/A"}
               onUploadImage={handleUploadImage}
